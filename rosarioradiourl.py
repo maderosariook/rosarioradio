@@ -16,7 +16,7 @@ if TOKEN is None:
     exit()
 
 # Reemplaza con la URL del stream de la radio
-RADIO_STREAM_URL = 'https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_URBANAAC.aac'
+RADIO_STREAM_URL = 'https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_URBAN_SC.mp3'
 # Reemplaza con el ID del canal de voz donde quieres que el bot se conecte AUTOMÁTICAMENTE al inicio (opcional)
 VOICE_CHANNEL_ID = 1360402590264725664
 
