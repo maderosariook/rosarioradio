@@ -1,1 +1,1 @@
-worker: Python rosarioradiourl.py
+worker: python rosarioradiourl.py
