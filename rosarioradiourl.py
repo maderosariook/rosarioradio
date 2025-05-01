@@ -1,11 +1,13 @@
 import discord
 import os
+import asyncio
 from discord.ext import commands
 from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
-RADIO_STREAM_URL = 'https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_URBAN_SC.mp3'
+# You can replace this back with your original stream once it works
+RADIO_STREAM_URL = 'https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_URBAN_SC'
 VOICE_CHANNEL_ID = 1360402590264725664
 
 intents = discord.Intents.default()
@@ -22,8 +24,17 @@ async def on_ready():
     if voice_channel and isinstance(voice_channel, discord.VoiceChannel):
         try:
             vc = await voice_channel.connect()
-            vc.play(discord.FFmpegPCMAudio(RADIO_STREAM_URL, executable='ffmpeg'))
+            ffmpeg_audio = discord.FFmpegPCMAudio(
+                RADIO_STREAM_URL,
+                executable="ffmpeg",
+                before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+                options="-vn"
+            )
+            vc.play(ffmpeg_audio)
             print(f'Conectado a {voice_channel.name} y transmitiendo radio.')
+            while vc.is_playing():
+                await asyncio.sleep(1)
+            print("FFmpeg dejó de reproducir.")
         except discord.ClientException:
             print("Ya estoy conectado a un canal de voz.")
         except ValueError:
@@ -40,8 +51,17 @@ async def joinradio(ctx):
     if voice_channel:
         try:
             vc = await voice_channel.connect()
-            vc.play(discord.FFmpegPCMAudio(RADIO_STREAM_URL, executable='ffmpeg'))
+            ffmpeg_audio = discord.FFmpegPCMAudio(
+                RADIO_STREAM_URL,
+                executable="ffmpeg",
+                before_options="-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+                options="-vn"
+            )
+            vc.play(ffmpeg_audio)
             await ctx.send(f'Conectado a {voice_channel.name} y transmitiendo la radio.')
+            while vc.is_playing():
+                await asyncio.sleep(1)
+            print("FFmpeg dejó de reproducir.")
         except discord.ClientException:
             await ctx.send("Ya estoy conectado a un canal de voz.")
         except ValueError:
@@ -61,3 +81,4 @@ async def leaveradio(ctx):
         await ctx.send("No estoy conectado a ningún canal de voz.")
 
 bot.run(TOKEN)
+
