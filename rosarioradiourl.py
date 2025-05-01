@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
-RADIO_STREAM_URL = 'https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_URBANAAC.aac'
+RADIO_STREAM_URL = 'https://playerservices.streamtheworld.com/api/livestream-redirect/LOS40_URBAN_SC.mp3'
 VOICE_CHANNEL_ID = 1360402590264725664
 
 intents = discord.Intents.default()
