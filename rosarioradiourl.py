@@ -6,7 +6,12 @@ TOKEN = 'MTM2Njg5MDYyMDQyMTAxNzczMw.GnfQBd.cuYFVE6-gtsNKQwI1vAtkCl61J0KTAMtti3yD
 # *** Reemplaza con el ID del canal de voz al que quieres que el bot se conecte ***
 VOICE_CHANNEL_ID = 1360402590264725664  # Ejemplo de ID, debes obtener el tuyo
 
-bot = commands.Bot(command_prefix='!')  # Puedes cambiar el prefijo si lo deseas
+# *** 1. Define los intents ***
+intents = discord.Intents.default()
+intents.voice_states = True  # Necesario para conectar y escuchar en canales de voz
+
+# *** 2. Pasa los intents al crear la instancia del bot ***
+bot = commands.Bot(command_prefix='!', intents=intents)  # Incluye 'intents=intents'
 
 @bot.event
 async def on_ready():
