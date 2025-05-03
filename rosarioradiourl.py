@@ -1,6 +1,7 @@
 import discord
 from discord.ext import commands
 import os
+import subprocess
 
 # *** Lee el token desde la variable de entorno ***
 TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
@@ -20,7 +21,18 @@ async def on_ready():
             vc = await voice_channel.connect()
             print(f"Conectado al canal de voz: {voice_channel.name}")
             try:
-                # *** URL de stream de prueba ***
+                # *** CÓDIGO DE PRUEBA DE FFMPEG ***
+                try:
+                    process = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True, timeout=5)
+                    print(f"Versión de ffmpeg:\n{process.stdout}")
+                except FileNotFoundError:
+                    print("ffmpeg no se encontró en el sistema.")
+                except subprocess.TimeoutExpired:
+                    print("El comando ffmpeg tardó demasiado en responder.")
+                except Exception as e:
+                    print(f"Ocurrió un error al ejecutar ffmpeg: {e}")
+                # *** FIN DEL CÓDIGO DE PRUEBA DE FFMPEG ***
+
                 radio_url = 'http://icecast.BroadcastingWorld.net:8000/stream'
                 vc.play(discord.FFmpegPCMAudio(f'-i {radio_url}', executable='ffmpeg', before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn -f s16le -ar 48000 -ac 2'))
                 print(f"Iniciando la reproducción desde: {radio_url}")
