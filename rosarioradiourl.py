@@ -1,6 +1,6 @@
 import discord
 from discord.ext import commands
-import os  # Importa la librería 'os' para acceder a las variables de entorno
+import os
 
 # *** Lee el token desde la variable de entorno ***
 TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
@@ -21,7 +21,7 @@ async def on_ready():
             print(f"Conectado al canal de voz: {voice_channel.name}")
             try:
                 radio_url = 'https://sonos.norsanmedia.com/latinatriad'
-                vc.play(discord.FFmpegPCMAudio(radio_url, executable='ffmpeg'))
+                vc.play(discord.FFmpegPCMAudio(radio_url, executable='ffmpeg', before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn'))
                 print(f"Iniciando la reproducción desde: {radio_url}")
             except Exception as e:
                 print(f"Error al iniciar la reproducción: {e}")
