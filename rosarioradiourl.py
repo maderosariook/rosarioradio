@@ -2,7 +2,7 @@ import discord
 from discord.ext import commands
 
 # *** IMPORTANTE: Reemplaza 'TU_TOKEN_DE_BOT' con el token real de tu bot de Discord ***
-TOKEN = 'MTM2Njg5MDYyMDQyMTAxNzczMw.GnfQBd.cuYFVE6-gtsNKQwI1vAtkCl61J0KTAMtti3yDw'
+TOKEN = 'MTM2Njg5MDYyMDQyMTAxNzczMw.Gj7btG.AnXVvz4-B_2Yqo8aY5P5BCL29Eq4JL6boxudSo'
 # *** Reemplaza con el ID del canal de voz al que quieres que el bot se conecte ***
 VOICE_CHANNEL_ID = 1360402590264725664  # Ejemplo de ID, debes obtener el tuyo
 
