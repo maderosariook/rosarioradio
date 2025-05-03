@@ -57,7 +57,7 @@ async def on_ready():
     print(f'Bot conectado como {bot.user}')
     if VOICE_CHANNEL_ID_BOT_PRESENTE:
         voice_channel = bot.get_channel(VOICE_CHANNEL_ID_BOT_PRESENTE)
-        if voice_channel and bot.voice_client is None:
+        if voice_channel and not any(vc.channel == voice_channel for vc in bot.voice_clients):
             try:
                 await voice_channel.connect()
                 print(f"Bot conectado silenciosamente a {voice_channel.name}")
