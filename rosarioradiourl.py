@@ -69,7 +69,7 @@ async def on_voice_state_update(member, before, after):
     if member == bot.user:
         return
 
-    voice_client = bot.voice_client
+    voice_client = member.guild.voice_client  # Acceder al cliente de voz del servidor
     if voice_client and member.guild == voice_client.guild:
         if after.channel == voice_client.channel and before.channel != after.channel:
             # Enviar el menú al chat del canal de voz
