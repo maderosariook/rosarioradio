@@ -1,158 +1,150 @@
 import discord
 from discord.ext import commands
-import os
 from discord import ui
+import os
+from dotenv import load_dotenv
 
-TOKEN = os.environ.get('DISCORD_BOT_TOKEN')
-VOICE_CHANNEL_ID_BOT_PRESENTE = 1360402590264725664  # ID del canal de voz donde el bot estará "silencioso"
+load_dotenv()
+TOKEN = os.getenv('DISCORD_BOT_TOKEN')
+if not TOKEN:
+    print("Error: La variable de entorno DISCORD_BOT_TOKEN no está configurada.")
+    exit()
+
 EMISORAS = {
-    "LA MEGA": "https://crystalout.surfernetwork.com:8001/WCHK-AM_MP3",
-    "LATINA 102.3 USA": "https://sonos.norsanmedia.com/latinatriad",
-    "MEZCLA TROPICAL RD": "https://stream.zeno.fm/esgo1lafgtstv",
-    "ROMANTICOS DEL AYER": "http://tropicalisima.org:8030/;",
-    "LATINURBANO": "https://stream.zeno.fm/cyku8zxvqg8uv",
-    "RADIO CRISTIANA": "https://audiopro.gob.re/637e6.mp3"
+    "LA MEGA": os.getenv('LA_MEGA_URL', "https://crystalout.surfernetwork.com:8001/WCHK-AM_MP3"),
+    "LATINA 102.3 USA": os.getenv('LATINA_USA_URL', "https://sonos.norsanmedia.com/latinatriad"),
+    "MEZCLA TROPICAL RD": os.getenv('MEZCLA_RD_URL', "https://stream.zeno.fm/esgo1lafgtstv"),
+    "ROMANTICOS DEL AYER": os.getenv('ROMANTICOS_URL', "http://tropicalisima.org:8030/;"),
+    "ALOFOKE FM": "http://radio5.domint.net:8222/stream",  # Reemplazamos "LATINURBANO" y su URL
+    "RADIO CRISTIANA": os.getenv('CRISTIANA_URL', "https://audiopro.gob.re/637e6.mp3")
 }
-currently_playing = {}
-voice_clients = {}
+
+currently_playing = {}  # {guild_id: voice_client}
+playing_station = {}   # {guild_id: emisora_nombre}
 
 intents = discord.Intents.default()
 intents.voice_states = True
+intents.guilds = True
 intents.message_content = True
+
 bot = commands.Bot(command_prefix='!', intents=intents)
 
-class RadioMenu(ui.View):
-    def __init__(self):
-        super().__init__()
-        self.add_item(EmisoraSelect())
-
-class EmisoraSelect(ui.Select):
-    def __init__(self):
-        options = [discord.SelectOption(label=nombre, value=url) for nombre, url in EMISORAS.items()]
-        super().__init__(placeholder="Elige una emisora...", min_values=1, max_values=1, options=options)
+class RadioButton(ui.Button):
+    def __init__(self, label, style, url=None, custom_id=None):
+        super().__init__(label=label, style=style, custom_id=f"radio_button_{label.replace(' ', '_')}")
+        self._url = url
+        self.nombre_emisora = label
 
     async def callback(self, interaction: discord.Interaction):
-        url = self.values[0]
-        nombre_emisora = [name for name, u in EMISORAS.items() if u == url][0]
+        print(f"URL dentro de callback: {self._url}") # ¡Para debug!
+        guild_id = interaction.guild.id
         voice_client = interaction.guild.voice_client
-        if voice_client is None:
+        if voice_client is None or not voice_client.is_connected():
             if interaction.user.voice and interaction.user.voice.channel:
-                voice_client = await interaction.user.voice.channel.connect()
-                voice_clients[interaction.guild.id] = voice_client
+                try:
+                    voice_client = await interaction.user.voice.channel.connect()
+                    currently_playing[guild_id] = voice_client
+                except discord.ClientException:
+                    await interaction.response.send_message("Ya estoy conectado a un canal de voz en este servidor.", ephemeral=True)
+                    return
+                except Exception as e:
+                    await interaction.response.send_message(f"Error al conectar al canal de voz: {e}", ephemeral=True)
+                    return
             else:
                 await interaction.response.send_message("Debes estar en un canal de voz para reproducir.", ephemeral=True)
                 return
 
         try:
-            voice_client.stop()  # Detener la reproducción anterior si existe
-            source = discord.FFmpegPCMAudio(url, executable='ffmpeg', before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn -f s16le -ar 48000 -ac 2')
+            voice_client.stop()
+            source = discord.FFmpegPCMAudio(self._url, executable='ffmpeg', before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn -f s16le -ar 48000 -ac 2')
             voice_client.play(source, after=lambda e: print(f'Player error: {e}') if e else None)
-            currently_playing[interaction.guild.id] = nombre_emisora
-            await interaction.response.send_message(f"Reproduciendo: **{nombre_emisora}**", ephemeral=True)
+            playing_station[guild_id] = self.nombre_emisora
+            await interaction.response.send_message(f"Reproduciendo: **{self.nombre_emisora}**", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"Error al reproducir: {e}", ephemeral=True)
+        # await interaction.response.defer()
+
+class PlayPauseButton(ui.Button):
+    def __init__(self, label, style, custom_id):
+        super().__init__(label=label, style=style, custom_id=custom_id)
+
+    async def callback(self, interaction: discord.Interaction):
+        guild_id = interaction.guild.id
+        voice_client = interaction.guild.voice_client
+        if voice_client and voice_client.is_connected():
+            if self.custom_id == "play_button":
+                if voice_client.is_paused():
+                    voice_client.resume()
+                    await interaction.response.send_message("Reproducción reanudada.", ephemeral=True)
+                else:
+                    await interaction.response.send_message("Ya se está reproduciendo.", ephemeral=True)
+            elif self.custom_id == "pause_button":
+                if voice_client.is_playing():
+                    voice_client.pause()
+                    await interaction.response.send_message("Reproducción pausada.", ephemeral=True)
+                else:
+                    await interaction.response.send_message("No hay nada reproduciendo para pausar.", ephemeral=True)
+        else:
+            await interaction.response.send_message("No estoy conectado a ningún canal de voz.", ephemeral=True)
+
+class RadioMenu(ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        emisoras_actualizadas = EMISORAS.copy()
+        self.clear_items() # Limpiamos los items existentes
+        for nombre, url in emisoras_actualizadas.items():
+            self.add_item(RadioButton(label=nombre, style=discord.ButtonStyle.primary, url=url))
+        self.add_item(PlayPauseButton(label="Play", style=discord.ButtonStyle.green, custom_id="play_button"))
+        self.add_item(PlayPauseButton(label="Pause", style=discord.ButtonStyle.red, custom_id="pause_button"))
 
 @bot.event
 async def on_ready():
     print(f'Bot conectado como {bot.user}')
-    if VOICE_CHANNEL_ID_BOT_PRESENTE:
-        voice_channel = bot.get_channel(VOICE_CHANNEL_ID_BOT_PRESENTE)
-        if voice_channel and not any(vc.channel == voice_channel for vc in bot.voice_clients):
-            try:
-                await voice_channel.connect()
-                print(f"Bot conectado silenciosamente a {voice_channel.name}")
-            except Exception as e:
-                print(f"Error al conectar al canal de voz silencioso: {e}")
 
-@bot.event
-async def on_voice_state_update(member, before, after):
-    if member == bot.user:
-        return
-
-    voice_client = member.guild.voice_client  # Acceder al cliente de voz del servidor
-    if voice_client and member.guild == voice_client.guild:
-        if after.channel == voice_client.channel and before.channel != after.channel:
-            # Enviar el menú al chat del canal de voz
-            await after.channel.send("¡Hola! Elige una emisora para reproducir:", view=RadioMenu())
-
-        if voice_client.channel and not voice_client.channel.members:
-            try:
-                await voice_client.disconnect()
-                if member.guild.id in voice_clients:
-                    del voice_clients[member.guild.id]
-                print(f"Bot desconectado de {voice_client.channel.name} por inactividad.")
-            except Exception as e:
-                print(f"Error al desconectar por inactividad: {e}")
-
-@bot.command()
-async def play(ctx, emisora_nombre: str = None):
-    """Reproduce la emisora seleccionada."""
-    if not emisora_nombre:
-        await ctx.send("Elige una emisora usando el menú desplegable.")
-        return
-
-    if emisora_nombre not in EMISORAS:
-        await ctx.send(f"Emisora '{emisora_nombre}' no encontrada. Usa el menú para elegir.")
-        return
-
-    url = EMISORAS[emisora_nombre]
-    voice_client = ctx.guild.voice_client
-    if voice_client is None:
-        if ctx.author.voice and ctx.author.voice.channel:
-            try:
-                voice_client = await ctx.author.voice.channel.connect()
-                voice_clients[ctx.guild.id] = voice_client
-            except Exception as e:
-                await ctx.send(f"Error al conectar al canal de voz: {e}")
-                return
-        else:
-            await ctx.send("Debes estar en un canal de voz para reproducir.")
-            return
-
-    try:
-        voice_client.stop()
-        source = discord.FFmpegPCMAudio(url, executable='ffmpeg', before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn -f s16le -ar 48000 -ac 2')
-        voice_client.play(source, after=lambda e: print(f'Player error: {e}') if e else None)
-        currently_playing[ctx.guild.id] = emisora_nombre
-        await ctx.send(f"Reproduciendo: **{emisora_nombre}**")
-    except Exception as e:
-        await ctx.send(f"Error al reproducir: {e}")
-
-@bot.command()
-async def pause(ctx):
-    """Pausa la reproducción."""
-    voice_client = ctx.guild.voice_client
-    if voice_client and voice_client.is_playing():
-        voice_client.pause()
-        await ctx.send("Reproducción pausada.")
+@bot.command(name="joinradio")
+async def join_radio(ctx):
+    """Une al bot al canal de voz del invocador y muestra el menú."""
+    if ctx.author.voice and ctx.author.voice.channel:
+        try:
+            voice_client = await ctx.author.voice.channel.connect()
+            currently_playing[ctx.guild.id] = voice_client
+            # Re-enviamos el menú actualizado
+            await ctx.send("¡Me he unido al canal de voz! Elige una emisora:", view=RadioMenu())
+        except discord.ClientException:
+            await ctx.send("Ya estoy conectado a un canal de voz en este servidor.")
+        except Exception as e:
+            await ctx.send(f"Error al conectar al canal de voz: {e}")
     else:
-        await ctx.send("No hay nada reproduciendo para pausar.")
+        await ctx.send("Debes estar en un canal de voz para que me una.")
 
-@bot.command()
-async def resume(ctx):
-    """Resume la reproducción."""
+@bot.command(name="leaveradio")
+async def leave_radio(ctx):
+    """Saca al bot del canal de voz."""
     voice_client = ctx.guild.voice_client
-    if voice_client and voice_client.is_paused():
-        voice_client.resume()
-        await ctx.send("Reproducción reanudada.")
+    if voice_client and voice_client.is_connected():
+        await voice_client.disconnect()
+        if ctx.guild.id in currently_playing:
+            del currently_playing[ctx.guild.id]
+        if ctx.guild.id in playing_station:
+            del playing_station[ctx.guild.id]
+        await ctx.send("¡Me he desconectado del canal de voz!")
     else:
-        await ctx.send("No hay nada pausado para reanudar.")
+        await ctx.send("No estoy conectado a ningún canal de voz.")
 
-@bot.command()
-async def stop(ctx):
-    """Detiene la reproducción y desconecta el bot."""
-    voice_client = ctx.guild.voice_client
-    if voice_client and voice_client.is_playing():
-        voice_client.stop()
-        del currently_playing[ctx.guild.id]
-        await ctx.send("Reproducción detenida.")
+@bot.command(name="rosarioradio")
+async def radio_menu(ctx):
+    """Muestra el menú de selección de emisoras con controles de reproducción."""
+    # Re-enviamos el menú actualizado
+    await ctx.send("Elige una emisora y controla la reproducción:", view=RadioMenu())
+
+@bot.command(name="playingradio")
+async def playing_radio(ctx):
+    """Muestra la emisora que se está reproduciendo actualmente."""
+    guild_id = ctx.guild.id
+    if guild_id in playing_station:
+        await ctx.send(f"Actualmente reproduciendo: **{playing_station[guild_id]}**")
     else:
-        await ctx.send("No hay nada reproduciendo para detener.")
-
-@bot.command()
-async def menu(ctx):
-    """Muestra el menú de la radio."""
-    await ctx.send("Elige una emisora para reproducir:", view=RadioMenu())
+        await ctx.send("No se está reproduciendo ninguna emisora en este servidor.")
 
 if __name__ == "__main__":
     bot.run(TOKEN)
