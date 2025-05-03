@@ -33,7 +33,7 @@ async def on_ready():
                     print(f"Ocurrió un error al ejecutar ffmpeg: {e}")
                 # *** FIN DEL CÓDIGO DE PRUEBA DE FFMPEG ***
 
-                radio_url = 'http://icecast.BroadcastingWorld.net:8000/stream'
+                radio_url = 'https://sonos.norsanmedia.com/latinatriad'
                 vc.play(discord.FFmpegPCMAudio(f'-i {radio_url}', executable='ffmpeg', before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', options='-vn -f s16le -ar 48000 -ac 2'))
                 print(f"Iniciando la reproducción desde: {radio_url}")
             except Exception as e:
