@@ -1,8 +1,9 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import ui
 import os
 from dotenv import load_dotenv
+import asyncio
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_BOT_TOKEN')
@@ -20,7 +21,9 @@ EMISORAS = {
 }
 
 currently_playing = {}  # {guild_id: voice_client}
-playing_station = {}   # {guild_id: emisora_nombre}
+playing_station = {}    # {guild_id: emisora_nombre}
+idle_timers = {}         # {guild_id: asyncio.Task}
+IDLE_TIMEOUT = 30 * 60   # 30 minutos en segundos
 
 intents = discord.Intents.default()
 intents.voice_states = True
@@ -29,6 +32,21 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix='!', intents=intents)
 
+async def disconnect_after_inactivity(guild_id):
+    await asyncio.sleep(IDLE_TIMEOUT)
+    voice_client = bot.guilds[guild_id].voice_client
+    if voice_client and not voice_client.channel.members:
+        await voice_client.disconnect()
+        if guild_id in currently_playing:
+            del currently_playing[guild_id]
+        if guild_id in playing_station:
+            del playing_station[guild_id]
+        if guild_id in idle_timers:
+            del idle_timers[guild_id]
+        channel = bot.get_channel(list(bot.guilds[guild_id].text_channels)[0].id) # Obtener el primer canal de texto
+        if channel:
+            await channel.send("Me he desconectado por inactividad.")
+
 class RadioButton(ui.Button):
     def __init__(self, label, style, url=None, custom_id=None):
         super().__init__(label=label, style=style, custom_id=f"radio_button_{label.replace(' ', '_')}")
@@ -36,7 +54,6 @@ class RadioButton(ui.Button):
         self.nombre_emisora = label
 
     async def callback(self, interaction: discord.Interaction):
-        print(f"URL dentro de callback: {self._url}") # ¡Para debug!
         guild_id = interaction.guild.id
         voice_client = interaction.guild.voice_client
         if voice_client is None or not voice_client.is_connected():
@@ -44,6 +61,10 @@ class RadioButton(ui.Button):
                 try:
                     voice_client = await interaction.user.voice.channel.connect()
                     currently_playing[guild_id] = voice_client
+                    # Iniciar el temporizador de inactividad al unirse
+                    if guild_id in idle_timers and not idle_timers[guild_id].done():
+                        idle_timers[guild_id].cancel()
+                    idle_timers[guild_id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
                 except discord.ClientException:
                     await interaction.response.send_message("Ya estoy conectado a un canal de voz en este servidor.", ephemeral=True)
                     return
@@ -62,7 +83,6 @@ class RadioButton(ui.Button):
             await interaction.response.send_message(f"Reproduciendo: **{self.nombre_emisora}**", ephemeral=True)
         except Exception as e:
             await interaction.response.send_message(f"Error al reproducir: {e}", ephemeral=True)
-        # await interaction.response.defer()
 
 class PlayPauseButton(ui.Button):
     def __init__(self, label, style, custom_id):
@@ -72,6 +92,11 @@ class PlayPauseButton(ui.Button):
         guild_id = interaction.guild.id
         voice_client = interaction.guild.voice_client
         if voice_client and voice_client.is_connected():
+            # Reiniciar el temporizador de inactividad al interactuar
+            if guild_id in idle_timers and not idle_timers[guild_id].done():
+                idle_timers[guild_id].cancel()
+            idle_timers[guild_id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
+
             if self.custom_id == "play_button":
                 if voice_client.is_paused():
                     voice_client.resume()
@@ -101,6 +126,50 @@ class RadioMenu(ui.View):
 async def on_ready():
     print(f'Bot conectado como {bot.user}')
 
+@bot.event
+async def on_voice_state_update(member, before, after):
+    guild = member.guild
+    voice_client = guild.voice_client
+
+    # Si un usuario se une a un canal de voz
+    if after.channel and (before.channel is None or before.channel != after.channel) and after.channel.members and member != bot.user:
+        # Si el bot no está ya conectado al canal
+        if not voice_client or voice_client.channel != after.channel:
+            try:
+                if voice_client and voice_client.is_connected():
+                    await voice_client.move_to(after.channel)
+                else:
+                    voice_client = await after.channel.connect()
+                    currently_playing[guild.id] = voice_client
+                    # Enviar el menú al primer canal de texto al unirse automáticamente
+                    channel = bot.get_channel(list(guild.text_channels)[0].id)
+                    if channel:
+                        await channel.send("¡Me he unido al canal de voz! Elige una emisora:", view=RadioMenu())
+                # Iniciar el temporizador de inactividad
+                if guild.id in idle_timers and not idle_timers[guild.id].done():
+                    idle_timers[guild.id].cancel()
+                idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
+            except discord.ClientException:
+                pass # Ya está conectado
+            except Exception as e:
+                print(f"Error al conectar automáticamente: {e}")
+                pass
+
+    # Si un usuario se va de un canal de voz
+    if before.channel and (after.channel is None or after.channel != before.channel):
+        if voice_client and voice_client.channel == before.channel:
+            # Reiniciar el temporizador de inactividad si el bot está en el canal y ahora está vacío (excepto el bot)
+            if not before.channel.members or all(m.id == bot.user.id for m in before.channel.members):
+                if guild.id in idle_timers and not idle_timers[guild.id].done():
+                    idle_timers[guild.id].cancel()
+                idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
+            elif before.channel.members and any(m.id != bot.user.id for m in before.channel.members):
+                # Si todavía hay usuarios, reiniciar el temporizador
+                if guild.id in idle_timers and not idle_timers[guild.id].done():
+                    idle_timers[guild.id].cancel()
+                idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
+
+
 @bot.command(name="joinradio")
 async def join_radio(ctx):
     """Une al bot al canal de voz del invocador y muestra el menú."""
@@ -108,7 +177,10 @@ async def join_radio(ctx):
         try:
             voice_client = await ctx.author.voice.channel.connect()
             currently_playing[ctx.guild.id] = voice_client
-            # Re-enviamos el menú actualizado
+            # Iniciar el temporizador de inactividad al unirse por comando
+            if ctx.guild.id in idle_timers and not idle_timers[ctx.guild.id].done():
+                idle_timers[ctx.guild.id].cancel()
+            idle_timers[ctx.guild.id] = bot.loop.create_task(disconnect_after_inactivity(ctx.guild.id))
             await ctx.send("¡Me he unido al canal de voz! Elige una emisora:", view=RadioMenu())
         except discord.ClientException:
             await ctx.send("Ya estoy conectado a un canal de voz en este servidor.")
@@ -127,6 +199,9 @@ async def leave_radio(ctx):
             del currently_playing[ctx.guild.id]
         if ctx.guild.id in playing_station:
             del playing_station[ctx.guild.id]
+        if ctx.guild.id in idle_timers:
+            idle_timers[ctx.guild.id].cancel()
+            del idle_timers[ctx.guild.id]
         await ctx.send("¡Me he desconectado del canal de voz!")
     else:
         await ctx.send("No estoy conectado a ningún canal de voz.")
@@ -134,7 +209,6 @@ async def leave_radio(ctx):
 @bot.command(name="rosarioradio")
 async def radio_menu(ctx):
     """Muestra el menú de selección de emisoras con controles de reproducción."""
-    # Re-enviamos el menú actualizado
     await ctx.send("Elige una emisora y controla la reproducción:", view=RadioMenu())
 
 @bot.command(name="playingradio")
