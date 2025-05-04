@@ -22,8 +22,10 @@ EMISORAS = {
 
 currently_playing = {}  # {guild_id: voice_client}
 playing_station = {}    # {guild_id: emisora_nombre}
-idle_timers = {}         # {guild_id: asyncio.Task}
-IDLE_TIMEOUT = 30 * 60   # 30 minutos en segundos
+idle_timers = {}        # {guild_id: asyncio.Task}
+FIRST_CHANNEL_ID = int(os.getenv('FIRST_CHANNEL_ID', 0)) # ID del canal específico para conexión automática
+IDLE_TIMEOUT = 30 * 60    # 30 minutos en segundos
+auto_connect_status = {} # {guild_id: bool} para rastrear si ya se conectó automáticamente
 
 intents = discord.Intents.default()
 intents.voice_states = True
@@ -43,6 +45,8 @@ async def disconnect_after_inactivity(guild_id):
             del playing_station[guild_id]
         if guild_id in idle_timers:
             del idle_timers[guild_id]
+        if guild_id in auto_connect_status:
+            del auto_connect_status[guild_id]
         channel = bot.get_channel(list(bot.guilds[guild_id].text_channels)[0].id) # Obtener el primer canal de texto
         if channel:
             await channel.send("Me he desconectado por inactividad.")
@@ -132,9 +136,9 @@ async def on_voice_state_update(member, before, after):
     voice_client = guild.voice_client
 
     # Si un usuario se une a un canal de voz
-    if after.channel and (before.channel is None or before.channel != after.channel) and after.channel.members and member != bot.user:
-        # Si el bot no está ya conectado al canal
-        if not voice_client or voice_client.channel != after.channel:
+    if after.channel and (before.channel is None or before.channel != after.channel) and member != bot.user:
+        # Conexión automática al canal específico la primera vez que un usuario entra
+        if after.channel.id == FIRST_CHANNEL_ID and (guild.id not in auto_connect_status or not auto_connect_status[guild.id]):
             try:
                 if voice_client and voice_client.is_connected():
                     await voice_client.move_to(after.channel)
@@ -145,6 +149,7 @@ async def on_voice_state_update(member, before, after):
                     channel = bot.get_channel(list(guild.text_channels)[0].id)
                     if channel:
                         await channel.send("¡Me he unido al canal de voz! Elige una emisora:", view=RadioMenu())
+                    auto_connect_status[guild.id] = True # Marcar que ya se conectó automáticamente
                 # Iniciar el temporizador de inactividad
                 if guild.id in idle_timers and not idle_timers[guild.id].done():
                     idle_timers[guild.id].cancel()
@@ -154,20 +159,24 @@ async def on_voice_state_update(member, before, after):
             except Exception as e:
                 print(f"Error al conectar automáticamente: {e}")
                 pass
+        # Reiniciar el temporizador si el bot ya está conectado y hay cambios de usuarios
+        elif voice_client and voice_client.channel == after.channel:
+            if guild.id in idle_timers and not idle_timers[guild.id].done():
+                idle_timers[guild.id].cancel()
+            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
 
-    # Si un usuario se va de un canal de voz
-    if before.channel and (after.channel is None or after.channel != before.channel):
-        if voice_client and voice_client.channel == before.channel:
-            # Reiniciar el temporizador de inactividad si el bot está en el canal y ahora está vacío (excepto el bot)
-            if not before.channel.members or all(m.id == bot.user.id for m in before.channel.members):
-                if guild.id in idle_timers and not idle_timers[guild.id].done():
-                    idle_timers[guild.id].cancel()
-                idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
-            elif before.channel.members and any(m.id != bot.user.id for m in before.channel.members):
-                # Si todavía hay usuarios, reiniciar el temporizador
-                if guild.id in idle_timers and not idle_timers[guild.id].done():
-                    idle_timers[guild.id].cancel()
-                idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
+    # Si un usuario se va de un canal de voz donde está el bot
+    if before.channel and (after.channel is None or after.channel != before.channel) and voice_client and voice_client.channel == before.channel:
+        # Reiniciar el temporizador de inactividad si el canal ahora está vacío (excepto el bot)
+        if not before.channel.members or all(m.id == bot.user.id for m in before.channel.members):
+            if guild.id in idle_timers and not idle_timers[guild.id].done():
+                idle_timers[guild.id].cancel()
+            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
+        elif before.channel.members and any(m.id != bot.user.id for m in before.channel.members):
+            # Si todavía hay usuarios, reiniciar el temporizador
+            if guild.id in idle_timers and not idle_timers[guild.id].done():
+                idle_timers[guild.id].cancel()
+            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
 
 
 @bot.command(name="joinradio")
@@ -182,6 +191,9 @@ async def join_radio(ctx):
                 idle_timers[ctx.guild.id].cancel()
             idle_timers[ctx.guild.id] = bot.loop.create_task(disconnect_after_inactivity(ctx.guild.id))
             await ctx.send("¡Me he unido al canal de voz! Elige una emisora:", view=RadioMenu())
+            # Resetear el estado de conexión automática si se usa el comando manualmente
+            if ctx.guild.id in auto_connect_status:
+                del auto_connect_status[ctx.guild.id]
         except discord.ClientException:
             await ctx.send("Ya estoy conectado a un canal de voz en este servidor.")
         except Exception as e:
@@ -202,6 +214,8 @@ async def leave_radio(ctx):
         if ctx.guild.id in idle_timers:
             idle_timers[ctx.guild.id].cancel()
             del idle_timers[ctx.guild.id]
+        if ctx.guild.id in auto_connect_status:
+            del auto_connect_status[ctx.guild.id]
         await ctx.send("¡Me he desconectado del canal de voz!")
     else:
         await ctx.send("No estoy conectado a ningún canal de voz.")
