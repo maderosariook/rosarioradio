@@ -36,20 +36,23 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 async def disconnect_after_inactivity(guild_id):
     await asyncio.sleep(IDLE_TIMEOUT)
-    voice_client = bot.guilds[guild_id].voice_client
-    if voice_client and not voice_client.channel.members:
-        await voice_client.disconnect()
-        if guild_id in currently_playing:
-            del currently_playing[guild_id]
-        if guild_id in playing_station:
-            del playing_station[guild_id]
-        if guild_id in idle_timers:
-            del idle_timers[guild_id]
-        if guild_id in auto_connect_status:
-            del auto_connect_status[guild_id]
-        channel = bot.get_channel(list(bot.guilds[guild_id].text_channels)[0].id) # Obtener el primer canal de texto
-        if channel:
-            await channel.send("Me he desconectado por inactividad.")
+    guild = bot.get_guild(guild_id)
+    if guild:
+        voice_client = guild.voice_client
+        if voice_client and voice_client.is_connected() and not voice_client.channel.members or all(m.id == bot.user.id for m in voice_client.channel.members):
+            await voice_client.disconnect()
+            if guild_id in currently_playing:
+                del currently_playing[guild_id]
+            if guild_id in playing_station:
+                del playing_station[guild_id]
+            if guild_id in idle_timers:
+                del idle_timers[guild_id]
+            if guild_id in auto_connect_status:
+                del auto_connect_status[guild_id]
+            # Enviar mensaje al primer canal de texto disponible
+            channel = discord.utils.get(guild.text_channels, position=0)
+            if channel:
+                await channel.send("Me he desconectado por inactividad.")
 
 class RadioButton(ui.Button):
     def __init__(self, label, style, url=None, custom_id=None):
@@ -65,7 +68,7 @@ class RadioButton(ui.Button):
                 try:
                     voice_client = await interaction.user.voice.channel.connect()
                     currently_playing[guild_id] = voice_client
-                    # Iniciar el temporizador de inactividad al unirse
+                    # Iniciar/reiniciar el temporizador de inactividad al unirse
                     if guild_id in idle_timers and not idle_timers[guild_id].done():
                         idle_timers[guild_id].cancel()
                     idle_timers[guild_id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
@@ -85,6 +88,10 @@ class RadioButton(ui.Button):
             voice_client.play(source, after=lambda e: print(f'Player error: {e}') if e else None)
             playing_station[guild_id] = self.nombre_emisora
             await interaction.response.send_message(f"Reproduciendo: **{self.nombre_emisora}**", ephemeral=True)
+            # Reiniciar el temporizador de inactividad al cambiar de emisora
+            if guild_id in idle_timers and not idle_timers[guild_id].done():
+                idle_timers[guild_id].cancel()
+            idle_timers[guild_id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
         except Exception as e:
             await interaction.response.send_message(f"Error al reproducir: {e}", ephemeral=True)
 
@@ -96,7 +103,7 @@ class PlayPauseButton(ui.Button):
         guild_id = interaction.guild.id
         voice_client = interaction.guild.voice_client
         if voice_client and voice_client.is_connected():
-            # Reiniciar el temporizador de inactividad al interactuar
+            # Reiniciar el temporizador de inactividad al interactuar con los controles
             if guild_id in idle_timers and not idle_timers[guild_id].done():
                 idle_timers[guild_id].cancel()
             idle_timers[guild_id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
@@ -135,7 +142,13 @@ async def on_voice_state_update(member, before, after):
     guild = member.guild
     voice_client = guild.voice_client
 
-    # Si un usuario se une a un canal de voz
+    # Función para reiniciar el temporizador de inactividad
+    async def reset_idle_timer(guild_id):
+        if guild_id in idle_timers and not idle_timers[guild_id].done():
+            idle_timers[guild_id].cancel()
+        idle_timers[guild_id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
+
+    # Si un usuario se une o cambia de canal
     if after.channel and (before.channel is None or before.channel != after.channel) and member != bot.user:
         # Conexión automática al canal específico la primera vez que un usuario entra
         if after.channel.id == FIRST_CHANNEL_ID and (guild.id not in auto_connect_status or not auto_connect_status[guild.id]):
@@ -145,39 +158,32 @@ async def on_voice_state_update(member, before, after):
                 else:
                     voice_client = await after.channel.connect()
                     currently_playing[guild.id] = voice_client
-                    # Enviar el menú al primer canal de texto al unirse automáticamente
-                    channel = bot.get_channel(list(guild.text_channels)[0].id)
+                    # Enviar el menú al primer canal de texto disponible al unirse automáticamente
+                    channel = discord.utils.get(guild.text_channels, position=0)
                     if channel:
                         await channel.send("¡Me he unido al canal de voz! Elige una emisora:", view=RadioMenu())
                     auto_connect_status[guild.id] = True # Marcar que ya se conectó automáticamente
                 # Iniciar el temporizador de inactividad
-                if guild.id in idle_timers and not idle_timers[guild.id].done():
-                    idle_timers[guild.id].cancel()
-                idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
+                await reset_idle_timer(guild.id)
             except discord.ClientException:
                 pass # Ya está conectado
             except Exception as e:
                 print(f"Error al conectar automáticamente: {e}")
                 pass
-        # Reiniciar el temporizador si el bot ya está conectado y hay cambios de usuarios
+        # Reiniciar el temporizador si el bot ya está conectado y hay cambios de usuarios en su canal
         elif voice_client and voice_client.channel == after.channel:
-            if guild.id in idle_timers and not idle_timers[guild.id].done():
-                idle_timers[guild.id].cancel()
-            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
+            await reset_idle_timer(guild.id)
 
     # Si un usuario se va de un canal de voz donde está el bot
     if before.channel and (after.channel is None or after.channel != before.channel) and voice_client and voice_client.channel == before.channel:
         # Reiniciar el temporizador de inactividad si el canal ahora está vacío (excepto el bot)
         if not before.channel.members or all(m.id == bot.user.id for m in before.channel.members):
-            if guild.id in idle_timers and not idle_timers[guild.id].done():
-                idle_timers[guild.id].cancel()
-            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
+            await reset_idle_timer(guild.id)
         elif before.channel.members and any(m.id != bot.user.id for m in before.channel.members):
-            # Si todavía hay usuarios, reiniciar el temporizador
-            if guild.id in idle_timers and not idle_timers[guild.id].done():
-                idle_timers[guild.id].cancel()
-            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
-
+            # Si todavía hay usuarios (aparte del bot) en el canal del que *se fue* alguien,
+            # y el bot sigue en ese canal, también reiniciamos el temporizador.
+            # Esto es importante si alguien se va pero aún quedan otros.
+            await reset_idle_timer(guild.id)
 
 @bot.command(name="joinradio")
 async def join_radio(ctx):
