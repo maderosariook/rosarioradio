@@ -12,11 +12,11 @@ if not TOKEN:
     exit()
 
 EMISORAS = {
-    "LA MEGA": os.getenv('LA_MEGA_URL', "https://crystalout.surfernetwork.com:8001/WCHK-AM_MP3"),
-    "LATINA 102.3 USA": os.getenv('LATINA_USA_URL', "https://sonos.norsanmedia.com/latinatriad"),
-    "MEZCLA TROPICAL RD": os.getenv('MEZCLA_RD_URL', "https://stream.zeno.fm/esgo1lafgtstv"),
+    "LA MEGA 97.9": "https://www.lamusica.com/en/stations/wskq",
+    "AMOR 93.1 NY": "https://www.lamusica.com/en/stations/wpat",
+    "LA MAGIA FM": "https://radio.hostlagarto.com/lamagiafm/stream",
     "ROMANTICOS DEL AYER": os.getenv('ROMANTICOS_URL', "http://tropicalisima.org:8030/;"),
-    "ALOFOKE FM": "http://radio5.domint.net:8222/stream",  # Reemplazamos "LATINURBANO" y su URL
+    "LA MEGA 106.9 PR": "https://www.lamusica.com/en/stations/wmeg",
     "RADIO CRISTIANA": os.getenv('CRISTIANA_URL', "https://audiopro.gob.re/637e6.mp3")
 }
 
@@ -171,12 +171,12 @@ async def on_voice_state_update(member, before, after):
         if not before.channel.members or all(m.id == bot.user.id for m in before.channel.members):
             if guild.id in idle_timers and not idle_timers[guild.id].done():
                 idle_timers[guild.id].cancel()
-            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
+            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
         elif before.channel.members and any(m.id != bot.user.id for m in before.channel.members):
             # Si todavía hay usuarios, reiniciar el temporizador
             if guild.id in idle_timers and not idle_timers[guild.id].done():
-                idle_timers[guild.id].cancel()
-            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
+                idle_timers[guild_id].cancel()
+            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
 
 
 @bot.command(name="joinradio")
