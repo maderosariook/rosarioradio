@@ -24,7 +24,7 @@ currently_playing = {}  # {guild_id: voice_client}
 playing_station = {}    # {guild_id: emisora_nombre}
 idle_timers = {}        # {guild_id: asyncio.Task}
 FIRST_CHANNEL_ID = int(os.getenv('FIRST_CHANNEL_ID', 0)) # ID del canal específico para conexión automática
-IDLE_TIMEOUT = 30 * 60    # 30 minutos en segundos
+IDLE_TIMEOUT = 15 * 60    # 15 minutos en segundos
 auto_connect_status = {} # {guild_id: bool} para rastrear si ya se conectó automáticamente
 
 intents = discord.Intents.default()
@@ -153,7 +153,7 @@ async def on_voice_state_update(member, before, after):
                 # Iniciar el temporizador de inactividad
                 if guild.id in idle_timers and not idle_timers[guild.id].done():
                     idle_timers[guild.id].cancel()
-                idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
+                idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
             except discord.ClientException:
                 pass # Ya está conectado
             except Exception as e:
@@ -163,7 +163,7 @@ async def on_voice_state_update(member, before, after):
         elif voice_client and voice_client.channel == after.channel:
             if guild.id in idle_timers and not idle_timers[guild.id].done():
                 idle_timers[guild.id].cancel()
-            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild.id))
+            idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
 
     # Si un usuario se va de un canal de voz donde está el bot
     if before.channel and (after.channel is None or after.channel != before.channel) and voice_client and voice_client.channel == before.channel:
@@ -175,7 +175,7 @@ async def on_voice_state_update(member, before, after):
         elif before.channel.members and any(m.id != bot.user.id for m in before.channel.members):
             # Si todavía hay usuarios, reiniciar el temporizador
             if guild.id in idle_timers and not idle_timers[guild.id].done():
-                idle_timers[guild_id].cancel()
+                idle_timers[guild.id].cancel()
             idle_timers[guild.id] = bot.loop.create_task(disconnect_after_inactivity(guild_id))
 
 
