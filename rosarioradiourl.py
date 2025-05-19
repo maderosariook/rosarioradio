@@ -12,11 +12,11 @@ if not TOKEN:
     exit()
 
 EMISORAS = {
-    "LA MEGA 97.9": "https://www.lamusica.com/en/stations/wskq",
-    "AMOR 93.1 NY": "https://www.lamusica.com/en/stations/wpat",
+    "LA MEGA 97.9": "https://liveaudio.lamusica.com/NY_WSKQ_icy?aw_0_1st.playerld=onlineradiobox",
+    "AMOR 93.1 NY": "https://liveaudio.lamusica.com/NY_WPAT_icy?aw_0_1st.playerld=onlineradiobox",
     "LA MAGIA FM": "https://radio.hostlagarto.com/lamagiafm/stream",
     "ROMANTICOS DEL AYER": os.getenv('ROMANTICOS_URL', "http://tropicalisima.org:8030/;"),
-    "LA MEGA 106.9 PR": "https://www.lamusica.com/en/stations/wmeg",
+    "LA MEGA 106.9 PR": "https://liveaudio.lamusica.com/PR_WMEG_icy?aw_0_1st.playerld=onlineradiobox",
     "RADIO CRISTIANA": os.getenv('CRISTIANA_URL', "https://audiopro.gob.re/637e6.mp3")
 }
 
